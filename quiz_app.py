@@ -573,7 +573,6 @@ def save_page_data_to_db(page_name_constant: str, data: dict):
             session.add_all(predictions_to_add)
 
         session.commit()
-        # st.toast(f"Prédictions pour {event_category} enregistrées!", icon="✅") # Optional feedback
 
 
 if __name__ == "__main__":
