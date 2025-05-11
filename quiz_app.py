@@ -496,6 +496,7 @@ def show_summary_page():
         st.session_state.current_page_index = 0
         st.session_state.answers = {}
         # Or you could hide the button: if not st.session_state.get('predictions_submitted', False): display button...
+        st.rerun()
         pass
 
 
