@@ -1,17 +1,26 @@
 import streamlit as st
+
+st.set_page_config(
+    page_title="Quiz SRA", layout="wide", initial_sidebar_state="collapsed"
+)
+
 from constants import athletes  # Import the athletes list
-from models import engine, QuizPrediction, create_db_and_tables  # DB Imports
-from sqlmodel import Session, select  # DB Imports
+from models import (
+    engine,
+    QuizPrediction,
+    create_db_and_tables_once,
+)  # DB Imports, changed function name
+from sqlmodel import Session, select  # DB Imports, added select
 
 # Constants for page names (can be moved to a constants.py later)
 PAGE_WELCOME = "Welcome"
-PAGE_LANCER_HOMME = "Lancer Homme"
-PAGE_LANCER_FEMME = "Lancer Femme"
-PAGE_SAUT_HOMME = "Saut Homme"
-PAGE_SAUT_FEMME = "Saut Femme"
-PAGE_COURSE_HOMME = "Course Homme"
-PAGE_COURSE_FEMME = "Course Femme"
-PAGE_POINTS = "Points du Jour"
+PAGE_LANCER_HOMME = "LANCERS HOMME"
+PAGE_LANCER_FEMME = "LANCERS FEMME"
+PAGE_SAUT_HOMME = "SAUTS HOMME"
+PAGE_SAUT_FEMME = "SAUTS FEMME"
+PAGE_COURSE_HOMME = "COURSES HOMME"
+PAGE_COURSE_FEMME = "COURSES FEMME"
+PAGE_POINTS = "TOTAL DE POINTS EQUIPE 1"
 PAGE_SUMMARY = "Récapitulatif"  # Optional: for showing all answers
 
 # Define prediction type constants
@@ -22,12 +31,12 @@ PREDICTION_TYPE_POINTS = "Total Points"
 
 # Define the order of pages for the wizard
 APP_PAGES_ORDER = [
-    PAGE_LANCER_HOMME,
     PAGE_LANCER_FEMME,
-    PAGE_SAUT_HOMME,
+    PAGE_LANCER_HOMME,
     PAGE_SAUT_FEMME,
-    PAGE_COURSE_HOMME,
+    PAGE_SAUT_HOMME,
     PAGE_COURSE_FEMME,
+    PAGE_COURSE_HOMME,
     PAGE_POINTS,
     PAGE_SUMMARY,
 ]
@@ -36,7 +45,7 @@ APP_PAGES_ORDER = [
 QUIZ_PAGES_FOR_PROGRESS = APP_PAGES_ORDER[:-1]
 
 # Prepare athlete choices by adding the "Other" option
-ATHLETES_CHOICES = ["Autre (préciser)"] + sorted(athletes)
+ATHLETES_CHOICES = ["Autre"] + sorted(athletes)
 
 
 def load_predictions_from_db(user_name: str):
@@ -100,13 +109,8 @@ def load_predictions_from_db(user_name: str):
 
 
 def main():
-    st.set_page_config(
-        page_title="Quiz SRA", layout="wide", initial_sidebar_state="collapsed"
-    )
-
-    # Create database tables if they don't exist
-    # This should be called once when the application starts.
-    create_db_and_tables()
+    # Create database tables if they don't exist (now uses _once version)
+    create_db_and_tables_once()
 
     # Initialize session state variables if they don't exist
     if "logged_in" not in st.session_state:
@@ -134,11 +138,47 @@ def main():
 
 
 def show_login_page():
-    st.title("Bienvenue au Quiz SRA!")
+    st.title("PRONOSTICS INTERCLUBS 2025 - EQUIPE 1")
+
+    st.subheader(
+        "Bienvenue dans le module de pronostics pour le second tour des Interclubs 2025 !"
+    )
+
+    st.write("**Règles du jeu :**")
+
+    st.write(
+        """
+        - Pour chaque famille de discipline, donne le podium des 3 meilleurs athlètes à la table hongroise (distinction hommes/femmes).
+        - Un athlète bien placé sur le podium rapporte 3 points.
+        - Un athlète placé sur le podium mais à la mauvaise place rapporte 1 point.
+        - Un coefficient multiplicateur est appliqué en fonction de l'athlète.
+            - Un athlète cité entre 100% et 75% (inclus) des podiums aura un multiplicateur neutre de (x1).
+            - Un athlète cité entre 74% et 50% (inclus) des podiums aura un multiplicateur de points (x2).
+            - Un athlète cité entre 49% et 25% (inclus) des podiums aura un multiplicateur de points (x4).
+            - Un athlète cité dans 24% (et moins) des podiums aura un multiplicateur de points(x10).
+        """
+    )
+
+    with st.expander("**Exemple :**"):
+        st.write(
+            """
+        Avant la compétition, je pronostique Solène Gicquel à la première place de la catégorie "SAUTS FEMMES".
+        Durant la compétition, Solène Gicquel réalise le plus grand nombre de points et termine donc à la première place dans la catégorie "SAUTS FEMMES". Cela me rapporte 3 points.
+        Sur 100 participants au jeu, Solène Gicquel a été pronostiquée sur 12 podiums de la catégorie "SAUTS FEMMES" (citée dans 24% et moins des podiums). Cela applique un coefficient multiplicateur (x10) aux points récoltés ci-dessus.
+        Mon pronostic sur Solène Gicquel me rapporte donc 30 points au total.
+        - Une question additionnelle sur le total des points de l'équipe permet de rapporter de 1 à 10 points, 1 point pour un résultat proche de +-1000 points.
+        - Le joueur ayant accumulé le plus de points avec ses pronostics remporte le jeu.
+        - En cas d'égalité au nombre de points, les joueurs sont départagés à celui qui aura prédit le total de points global de l'équipe le plus proche de la réalité. Si l'égalité perdure, les deux joueurs sont désignés vainqueurs ex-aequo.
+        - Il est possible de changer tes pronostics jusqu'à dimanche 10h00. Tout formulaire envoyé ou réenvoyé après cet horaire sera considéré hors concours.
+        - Pour revenir sur tes pronostics déjà effectués, remets le même "Prénom + Nom" renseignés à l'inscription.
+        """
+        )
+
+    st.write("**Bon jeu !**")
 
     name = st.text_input("Entrez votre nom:", key="name_input_login")
 
-    if st.button("Commencer le Quiz", key="login_button"):
+    if st.button("JOUER", key="login_button", type="primary"):
         if name:
             st.session_state.logged_in = True
             st.session_state.user_name = name
@@ -194,7 +234,7 @@ def save_current_page_data():
             selected_value = st.session_state.get(select_key)
             actual_value_to_save = None
 
-            if selected_value == "Autre (préciser)":
+            if selected_value == "Autre":
                 other_value = st.session_state.get(other_key, "").strip()
                 if other_value:  # Only consider if 'other' is filled
                     actual_value_to_save = other_value
@@ -323,7 +363,7 @@ def get_podium_input(page_key_prefix):
                 if current_saved_value_for_place in ATHLETES_CHOICES:
                     st.session_state[select_widget_key] = current_saved_value_for_place
                 else:  # It's an "other" value not in ATHLETES_CHOICES list (e.g. custom text)
-                    st.session_state[select_widget_key] = "Autre (préciser)"
+                    st.session_state[select_widget_key] = "Autre"
             else:
                 st.session_state[select_widget_key] = None  # Let placeholder show
 
@@ -331,7 +371,7 @@ def get_podium_input(page_key_prefix):
         if other_widget_key not in st.session_state:
             if (
                 current_saved_value_for_place
-                and st.session_state.get(select_widget_key) == "Autre (préciser)"
+                and st.session_state.get(select_widget_key) == "Autre"
             ):
                 st.session_state[other_widget_key] = current_saved_value_for_place
             else:
@@ -345,7 +385,7 @@ def get_podium_input(page_key_prefix):
             placeholder="Choisissez un athlète ou 'Autre'",
         )
 
-        if st.session_state.get(select_widget_key) == "Autre (préciser)":
+        if st.session_state.get(select_widget_key) == "Autre":
             st.text_input(
                 f"Précisez le nom ({i}e Place):",
                 key=other_widget_key,  # Let Streamlit manage value via session state
@@ -363,7 +403,30 @@ def get_podium_input(page_key_prefix):
 def show_event_page(page_name):
     st.title(page_name)
     page_answer_key = page_name.lower().replace(" ", "_")
-    st.write("Prédisez le podium pour cet événement.")
+    if page_name == PAGE_LANCER_HOMME:
+        st.write(
+            "Donne le classement des 3 meilleurs lanceurs de l'équipe 1 sur la compétition."
+        )
+    elif page_name == PAGE_LANCER_FEMME:
+        st.write(
+            "Donne le classement des 3 meilleures lanceuses de l'équipe 1 sur la compétition."
+        )
+    elif page_name == PAGE_SAUT_HOMME:
+        st.write(
+            "Donne le classement des 3 meilleurs sauteurs de l'équipe 1 sur la compétition."
+        )
+    elif page_name == PAGE_SAUT_FEMME:
+        st.write(
+            "Donne le classement des 3 meilleures sauteuses de l'équipe 1 sur la compétition."
+        )
+    elif page_name == PAGE_COURSE_HOMME:
+        st.write(
+            "Donne le classement des 3 meilleurs coureurs de l'équipe 1 sur la compétition."
+        )
+    elif page_name == PAGE_COURSE_FEMME:
+        st.write(
+            "Donne le classement des 3 meilleures coureuses de l'équipe 1 sur la compétition."
+        )
     get_podium_input(page_answer_key)
 
 
@@ -379,7 +442,7 @@ def show_points_page():
         st.session_state.points_input = current_points_saved
 
     st.number_input(
-        "Combien de points pensez-vous que l'équipe marquera aujourd'hui?",
+        "Quel sera le total de points récoltés par l'équipe 1 à la fin de la journée de compétition ?",
         min_value=0,
         step=1,
         key="points_input",  # Let Streamlit manage value via session state
