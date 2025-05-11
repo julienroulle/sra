@@ -1,5 +1,7 @@
 import streamlit as st
 from constants import athletes  # Import the athletes list
+from models import engine, QuizPrediction, create_db_and_tables  # DB Imports
+from sqlmodel import Session, select  # DB Imports
 
 # Constants for password and page names (can be moved to a constants.py later)
 PASSWORD = "SRAJEU"
@@ -12,6 +14,12 @@ PAGE_COURSE_HOMME = "Course Homme"
 PAGE_COURSE_FEMME = "Course Femme"
 PAGE_POINTS = "Points du Jour"
 PAGE_SUMMARY = "Récapitulatif"  # Optional: for showing all answers
+
+# Define prediction type constants
+PREDICTION_TYPE_PLACE_1 = "Place 1"
+PREDICTION_TYPE_PLACE_2 = "Place 2"
+PREDICTION_TYPE_PLACE_3 = "Place 3"
+PREDICTION_TYPE_POINTS = "Total Points"
 
 # Define the order of pages for the wizard
 APP_PAGES_ORDER = [
@@ -32,10 +40,74 @@ QUIZ_PAGES_FOR_PROGRESS = APP_PAGES_ORDER[:-1]
 ATHLETES_CHOICES = ["Autre (préciser)"] + sorted(athletes)
 
 
+def load_predictions_from_db(user_name: str):
+    loaded_answers = {}
+    # Helper to map page display names (constants) to page_answer_keys
+    page_name_to_answer_key = {
+        page: page.lower().replace(" ", "_")
+        for page in APP_PAGES_ORDER
+        if page not in [PAGE_SUMMARY, PAGE_WELCOME]
+    }
+    # And the reverse for easier lookup from DB event_category
+    answer_key_to_page_name = {v: k for k, v in page_name_to_answer_key.items()}
+
+    with Session(engine) as session:
+        db_predictions = session.exec(
+            select(QuizPrediction).where(QuizPrediction.user_name == user_name)
+        ).all()
+
+        for pred in db_predictions:
+            event_category_constant = (
+                pred.event_category
+            )  # This should be like PAGE_LANCER_HOMME
+            page_answer_key = page_name_to_answer_key.get(event_category_constant)
+
+            if not page_answer_key:
+                # Fallback if event_category_constant isn't directly in APP_PAGES_ORDER (e.g. old data)
+                # This case should ideally not happen with current save logic
+                print(
+                    f"Warning: Could not map event_category '{event_category_constant}' to a page_answer_key."
+                )
+                # Attempt a direct conversion as a last resort, though it might not match APP_PAGES_ORDER keys
+                page_answer_key = event_category_constant.lower().replace(" ", "_")
+
+            if page_answer_key not in loaded_answers:
+                loaded_answers[page_answer_key] = {}
+
+            if pred.prediction_type == PREDICTION_TYPE_POINTS:
+                try:
+                    loaded_answers[page_answer_key]["points"] = int(
+                        pred.predicted_value
+                    )
+                except ValueError:
+                    print(
+                        f"Warning: Could not convert points value '{pred.predicted_value}' to int for {page_answer_key}"
+                    )
+                    loaded_answers[page_answer_key]["points"] = (
+                        0  # Default to 0 or handle as error
+                    )
+            elif pred.prediction_type == PREDICTION_TYPE_PLACE_1:
+                loaded_answers[page_answer_key]["place1"] = pred.predicted_value
+            elif pred.prediction_type == PREDICTION_TYPE_PLACE_2:
+                loaded_answers[page_answer_key]["place2"] = pred.predicted_value
+            elif pred.prediction_type == PREDICTION_TYPE_PLACE_3:
+                loaded_answers[page_answer_key]["place3"] = pred.predicted_value
+
+    st.session_state.answers = loaded_answers
+    # After loading, we need to ensure that the Streamlit widget states themselves are updated
+    # for the current page if it's already rendered. This is a bit tricky as Streamlit reruns.
+    # The existing logic in get_podium_input and show_points_page should handle initializing
+    # widget states from st.session_state.answers when they run.
+
+
 def main():
     st.set_page_config(
         page_title="Quiz SRA", layout="wide", initial_sidebar_state="collapsed"
     )
+
+    # Create database tables if they don't exist
+    # This should be called once when the application starts.
+    create_db_and_tables()
 
     # Initialize session state variables if they don't exist
     if "logged_in" not in st.session_state:
@@ -77,8 +149,26 @@ def show_login_page():
                 st.session_state.user_name = name
                 st.session_state.current_page_index = 0
                 st.session_state.current_page = APP_PAGES_ORDER[0]
-                # Clear answers from any previous session for this user upon new login
                 st.session_state.answers = {}
+                load_predictions_from_db(name)  # Load existing predictions from DB
+
+                # Clear widget-specific states to force re-initialization from loaded answers
+                page_keys_for_widgets = [
+                    page.lower().replace(" ", "_")
+                    for page in APP_PAGES_ORDER
+                    if page not in [PAGE_SUMMARY, PAGE_WELCOME, PAGE_POINTS]
+                ]
+                for page_key in page_keys_for_widgets:
+                    for i in range(1, 4):
+                        select_k = f"{page_key}_place{i}_select"
+                        other_k = f"{page_key}_place{i}_other"
+                        if select_k in st.session_state:
+                            del st.session_state[select_k]
+                        if other_k in st.session_state:
+                            del st.session_state[other_k]
+                if "points_input" in st.session_state:
+                    del st.session_state["points_input"]
+
                 st.rerun()
             else:
                 st.error("Veuillez entrer votre nom.")
@@ -109,28 +199,51 @@ def save_current_page_data():
             other_key = f"{page_answer_key}_place{i}_other"
 
             selected_value = st.session_state.get(select_key)
+            actual_value_to_save = None
 
             if selected_value == "Autre (préciser)":
                 other_value = st.session_state.get(other_key, "").strip()
-                if other_value:  # Only save if 'other' is filled
-                    podium_data_to_save[f"place{i}"] = other_value
+                if other_value:  # Only consider if 'other' is filled
+                    actual_value_to_save = other_value
             elif (
                 selected_value and selected_value != "Choisissez un athlète ou 'Autre'"
             ):  # Non-empty, not placeholder, not "Autre"
-                podium_data_to_save[f"place{i}"] = selected_value
+                actual_value_to_save = selected_value
+
+            # Save the actual value (or None if nothing valid was selected/entered for this place)
+            # This ensures that if a user clears a field, it's reflected as None (or not present in dict)
+            if actual_value_to_save:
+                podium_data_to_save[f"place{i}"] = actual_value_to_save
+            # If not actual_value_to_save, the key f"place{i}" won't be in podium_data_to_save
+            # This is important for the DB save logic to know what to delete/insert
 
         if podium_data_to_save:
             st.session_state.answers[page_answer_key] = podium_data_to_save
-        elif page_answer_key in st.session_state.answers and not podium_data_to_save:
-            # If user clears all fields on a page that previously had answers
+            save_page_data_to_db(current_page_name, podium_data_to_save)  # DB save
+        elif (
+            page_answer_key in st.session_state.answers
+        ):  # If all fields cleared on a page that had answers
             del st.session_state.answers[page_answer_key]
+            save_page_data_to_db(
+                current_page_name, {}
+            )  # DB save with empty data to clear entries
+        else:  # Page was initially empty and remains empty, no answers, and no pre-existing answers to clear
+            save_page_data_to_db(
+                current_page_name, {}
+            )  # Still call to ensure DB is cleared if it had stale data from a previous session for this user somehow
 
     elif current_page_name == PAGE_POINTS:
         points_value = st.session_state.get("points_input")
+        page_data_to_save = {}
         if points_value is not None:  # number_input can be 0
-            st.session_state.answers[page_answer_key] = {"points": points_value}
-        # No need to explicitly delete if None, as number_input usually has a default.
-        # If it becomes an issue, add logic similar to event pages for deletion.
+            page_data_to_save = {"points": points_value}
+            st.session_state.answers[page_answer_key] = page_data_to_save
+        elif page_answer_key in st.session_state.answers:  # Points cleared
+            del st.session_state.answers[page_answer_key]
+
+        save_page_data_to_db(
+            current_page_name, page_data_to_save
+        )  # DB save (even if empty to clear)
 
 
 def render_wizard_layout():
@@ -173,7 +286,7 @@ def render_wizard_layout():
             if st.button(
                 "⬅️ Précédent", key="prev_button_wizard", use_container_width=True
             ):
-                # No save on previous
+                save_current_page_data()  # Save data of the page user is LEAVING
                 st.session_state.current_page_index -= 1
                 st.session_state.current_page = APP_PAGES_ORDER[
                     st.session_state.current_page_index
@@ -185,7 +298,7 @@ def render_wizard_layout():
             if st.button(
                 "Suivant ➡️", key="next_button_wizard", use_container_width=True
             ):
-                save_current_page_data()  # Save data before moving to next page
+                save_current_page_data()  # Save data of page user is LEAVING
                 st.session_state.current_page_index += 1
                 st.session_state.current_page = APP_PAGES_ORDER[
                     st.session_state.current_page_index
@@ -282,64 +395,129 @@ def show_points_page():
 
 
 def show_summary_page():
-    st.title("Récapitulatif de vos réponses")
-    if not st.session_state.answers:
-        st.write("Vous n'avez pas encore soumis de prédictions.")
-        if st.button("Commencer les prédictions", key="start_pred_from_empty_summary"):
-            st.session_state.current_page_index = 0
-            st.session_state.current_page = APP_PAGES_ORDER[0]
-            st.rerun()
-        return
+    st.title(PAGE_SUMMARY)
+    st.write(f"Merci pour votre participation, {st.session_state.user_name}!")
+    st.write("Voici un récapitulatif de vos réponses:")
 
-    all_pages_keys_ordered = [
-        p.lower().replace(" ", "_") for p in APP_PAGES_ORDER if p != PAGE_SUMMARY
-    ]
+    # Display answers (existing logic)
+    for page_key, data in st.session_state.answers.items():
+        # Attempt to map page_key back to a displayable page name
+        # This is a bit manual; consider a reverse mapping if this becomes complex
+        display_page_name = page_key.replace("_", " ").title()
+        for constant_name, constant_value in globals().items():
+            if (
+                isinstance(constant_value, str)
+                and constant_value.lower().replace(" ", "_") == page_key
+            ):
+                display_page_name = constant_value
+                break
 
-    for page_key in all_pages_keys_ordered:
-        page_title_parts = page_key.split("_")
-        page_title = " ".join(word.capitalize() for word in page_title_parts)
-
-        page_answers = st.session_state.answers.get(page_key)
-
-        if page_answers:
-            st.subheader(page_title)
-            if page_key == PAGE_POINTS.lower().replace(" ", "_"):
-                st.metric(
-                    label="Points Prédits",
-                    value=page_answers.get("points", "Non renseigné"),
-                )
-            else:
-                # Event page (Lancer, Saut, Course)
-                for i in range(1, 4):
-                    athlete_name = page_answers.get(f"place{i}", "Non renseigné")
-                    st.metric(label=f"{i}e Place", value=athlete_name)
-            st.divider()
+        st.subheader(display_page_name)
+        if isinstance(data, dict):
+            if "points" in data:  # Points page
+                st.write(f"Points: {data['points']}")
+            else:  # Event page (podium)
+                for place, athlete in data.items():
+                    # Convert place key (e.g., "place1") to display string (e.g., "1ère Place")
+                    place_display = ""
+                    if place == "place1":
+                        place_display = "1ère Place"
+                    elif place == "place2":
+                        place_display = "2ème Place"
+                    elif place == "place3":
+                        place_display = "3ème Place"
+                    else:
+                        place_display = place.title()
+                    st.write(f"{place_display}: {athlete}")
         else:
-            # Optionally show pages that were skipped or had no answers
-            st.subheader(f"{page_title} (Non renseigné)")
-            st.write("Aucune prédiction enregistrée pour cette catégorie.")
-            st.divider()
+            st.write(str(data))
+        st.markdown("---")
 
-    if st.button("Recommencer le quiz", key="restart_quiz_summary"):
-        st.session_state.logged_in = False
+    if st.button("Recommencer le Quiz", key="restart_quiz_summary"):
+        # Reset relevant session state variables to restart the quiz
+        st.session_state.logged_in = False  # Go back to login
         st.session_state.user_name = ""
         st.session_state.current_page_index = 0
         st.session_state.answers = {}
-        st.session_state.current_page = PAGE_WELCOME
+        # Or you could hide the button: if not st.session_state.get('predictions_submitted', False): display button...
+        pass
 
-        # Minimal clearing of widget states, Streamlit handles much of this on rerun/page change
-        # Only clear those explicitly managed or that might cause issues.
-        keys_to_clear = ["name_input_login", "password_input_login", "points_input"]
-        for p_key in all_pages_keys_ordered:
-            if p_key != PAGE_POINTS.lower().replace(" ", "_"):
-                for i in range(1, 4):
-                    keys_to_clear.append(f"{p_key}_place{i}_select")
-                    keys_to_clear.append(f"{p_key}_place{i}_other")
 
-        for key in keys_to_clear:
-            if key in st.session_state:
-                del st.session_state[key]
-        st.rerun()
+def save_page_data_to_db(page_name_constant: str, data: dict):
+    user_name = st.session_state.user_name
+    if not user_name:
+        # This should ideally not happen if user is logged in, but good for robustness
+        print("Error: User name not found in session state for DB save.")
+        return
+
+    event_category = page_name_constant  # e.g., PAGE_LANCER_HOMME
+
+    with Session(engine) as session:
+        # Delete existing predictions for this user and event_category to avoid duplicates/outdated entries
+        if event_category == PAGE_POINTS:
+            stmt = QuizPrediction.__table__.delete().where(
+                (QuizPrediction.user_name == user_name)
+                & (QuizPrediction.event_category == event_category)
+                & (QuizPrediction.prediction_type == PREDICTION_TYPE_POINTS)
+            )
+            session.execute(stmt)
+        else:  # For event pages (podium)
+            stmt_place1 = QuizPrediction.__table__.delete().where(
+                (QuizPrediction.user_name == user_name)
+                & (QuizPrediction.event_category == event_category)
+                & (QuizPrediction.prediction_type == PREDICTION_TYPE_PLACE_1)
+            )
+            session.execute(stmt_place1)
+            stmt_place2 = QuizPrediction.__table__.delete().where(
+                (QuizPrediction.user_name == user_name)
+                & (QuizPrediction.event_category == event_category)
+                & (QuizPrediction.prediction_type == PREDICTION_TYPE_PLACE_2)
+            )
+            session.execute(stmt_place2)
+            stmt_place3 = QuizPrediction.__table__.delete().where(
+                (QuizPrediction.user_name == user_name)
+                & (QuizPrediction.event_category == event_category)
+                & (QuizPrediction.prediction_type == PREDICTION_TYPE_PLACE_3)
+            )
+            session.execute(stmt_place3)
+
+        predictions_to_add = []
+        if event_category == PAGE_POINTS:
+            points_value = data.get("points")
+            if points_value is not None:
+                prediction = QuizPrediction(
+                    user_name=user_name,
+                    event_category=event_category,
+                    prediction_type=PREDICTION_TYPE_POINTS,
+                    predicted_value=str(points_value),
+                )
+                predictions_to_add.append(prediction)
+        else:  # Event page (podium)
+            for place_key, athlete_name in data.items():
+                prediction_type = ""
+                if place_key == "place1":
+                    prediction_type = PREDICTION_TYPE_PLACE_1
+                elif place_key == "place2":
+                    prediction_type = PREDICTION_TYPE_PLACE_2
+                elif place_key == "place3":
+                    prediction_type = PREDICTION_TYPE_PLACE_3
+
+                if (
+                    prediction_type and athlete_name
+                ):  # athlete_name might be None/empty if cleared
+                    prediction = QuizPrediction(
+                        user_name=user_name,
+                        event_category=event_category,
+                        prediction_type=prediction_type,
+                        predicted_value=str(athlete_name),
+                    )
+                    predictions_to_add.append(prediction)
+
+        if predictions_to_add:
+            session.add_all(predictions_to_add)
+
+        session.commit()
+        # st.toast(f"Prédictions pour {event_category} enregistrées!", icon="✅") # Optional feedback
 
 
 if __name__ == "__main__":
