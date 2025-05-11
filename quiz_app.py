@@ -3,8 +3,7 @@ from constants import athletes  # Import the athletes list
 from models import engine, QuizPrediction, create_db_and_tables  # DB Imports
 from sqlmodel import Session, select  # DB Imports
 
-# Constants for password and page names (can be moved to a constants.py later)
-PASSWORD = "SRAJEU"
+# Constants for page names (can be moved to a constants.py later)
 PAGE_WELCOME = "Welcome"
 PAGE_LANCER_HOMME = "Lancer Homme"
 PAGE_LANCER_FEMME = "Lancer Femme"
@@ -138,42 +137,36 @@ def show_login_page():
     st.title("Bienvenue au Quiz SRA!")
 
     name = st.text_input("Entrez votre nom:", key="name_input_login")
-    password_input = st.text_input(
-        "Entrez le mot de passe:", type="password", key="password_input_login"
-    )
 
     if st.button("Commencer le Quiz", key="login_button"):
-        if password_input == PASSWORD:
-            if name:
-                st.session_state.logged_in = True
-                st.session_state.user_name = name
-                st.session_state.current_page_index = 0
-                st.session_state.current_page = APP_PAGES_ORDER[0]
-                st.session_state.answers = {}
-                load_predictions_from_db(name)  # Load existing predictions from DB
+        if name:
+            st.session_state.logged_in = True
+            st.session_state.user_name = name
+            st.session_state.current_page_index = 0
+            st.session_state.current_page = APP_PAGES_ORDER[0]
+            st.session_state.answers = {}
+            load_predictions_from_db(name)  # Load existing predictions from DB
 
-                # Clear widget-specific states to force re-initialization from loaded answers
-                page_keys_for_widgets = [
-                    page.lower().replace(" ", "_")
-                    for page in APP_PAGES_ORDER
-                    if page not in [PAGE_SUMMARY, PAGE_WELCOME, PAGE_POINTS]
-                ]
-                for page_key in page_keys_for_widgets:
-                    for i in range(1, 4):
-                        select_k = f"{page_key}_place{i}_select"
-                        other_k = f"{page_key}_place{i}_other"
-                        if select_k in st.session_state:
-                            del st.session_state[select_k]
-                        if other_k in st.session_state:
-                            del st.session_state[other_k]
-                if "points_input" in st.session_state:
-                    del st.session_state["points_input"]
+            # Clear widget-specific states to force re-initialization from loaded answers
+            page_keys_for_widgets = [
+                page.lower().replace(" ", "_")
+                for page in APP_PAGES_ORDER
+                if page not in [PAGE_SUMMARY, PAGE_WELCOME, PAGE_POINTS]
+            ]
+            for page_key in page_keys_for_widgets:
+                for i in range(1, 4):
+                    select_k = f"{page_key}_place{i}_select"
+                    other_k = f"{page_key}_place{i}_other"
+                    if select_k in st.session_state:
+                        del st.session_state[select_k]
+                    if other_k in st.session_state:
+                        del st.session_state[other_k]
+            if "points_input" in st.session_state:
+                del st.session_state["points_input"]
 
-                st.rerun()
-            else:
-                st.error("Veuillez entrer votre nom.")
+            st.rerun()
         else:
-            st.error("Mot de passe incorrect.")
+            st.error("Veuillez entrer votre nom.")
 
 
 def save_current_page_data():
