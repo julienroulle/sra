@@ -1,4 +1,7 @@
 import streamlit as st
+
+st.set_page_config(page_title="Database View", layout="wide")
+
 from sqlmodel import Session, select
 from models import (
     engine,
