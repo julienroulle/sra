@@ -1,7 +1,7 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="Quiz SRA", layout="wide", initial_sidebar_state="collapsed"
+    page_title="Pronostics SRA", layout="wide", initial_sidebar_state="collapsed"
 )
 
 from constants import athletes  # Import the athletes list
