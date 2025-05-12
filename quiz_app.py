@@ -175,7 +175,7 @@ def show_login_page():
         - Le joueur ayant accumulé le plus de points avec ses pronostics remporte le jeu.
         - En cas d'égalité au nombre de points, les joueurs sont départagés à celui qui aura prédit le total de points global de l'équipe le plus proche de la réalité. Si l'égalité perdure, les deux joueurs sont désignés vainqueurs ex-aequo.
         - Il est possible de changer tes pronostics jusqu'à dimanche 10h00. Tout formulaire envoyé ou réenvoyé après cet horaire sera considéré hors concours.
-        - Pour revenir sur tes pronostics déjà effectués, remets le même "Prénom + Nom" renseignés à l'inscription.
+        - Pour revenir sur tes pronostics déjà effectués, remets le même "Prénom + Nom" renseignés à l'inscription ainsi que ton code à 4 chiffres.
         """
     )
 
@@ -184,7 +184,9 @@ def show_login_page():
     col_1, col_2 = st.columns([4, 1])
 
     with col_1:
-        name = st.text_input("Entrez votre nom:", key="name_input_login")
+        name = st.text_input(
+            "Entrez votre nom:", key="name_input_login", placeholder="Prénom + Nom"
+        )
 
     with col_2:
         code = st.text_input(
@@ -468,8 +470,8 @@ def show_points_page():
 
 def show_summary_page():
     st.title(PAGE_SUMMARY)
-    st.write(f"Merci pour votre participation, {st.session_state.user_name}!")
-    st.write("Voici un récapitulatif de vos réponses:")
+    st.write(f"Merci pour ta participation, {st.session_state.user_name}!")
+    st.write("Voici un récapitulatif de tes réponses:")
 
     # Display answers (existing logic)
     for page_key, data in st.session_state.answers.items():

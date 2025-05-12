@@ -50,7 +50,7 @@ def show_stats_page():
 
                 # Define bins from 35000 to 65000 (inclusive) with step 1000
                 bins = list(range(35000, 65001, 1000))
-                labels = [f"{b}-{b + 999}" for b in bins[:-1]]
+                labels = [f"{b}-{b + 1000}" for b in bins[:-1]]
 
                 # Bin the values
                 category_df_numeric["bin"] = pd.cut(
