@@ -149,43 +149,56 @@ def show_login_page():
     st.write(
         """
         - Pour chaque famille de discipline, donne le podium des 3 meilleurs athlètes à la table hongroise (distinction hommes/femmes).
-        - Un athlète bien placé sur le podium rapporte 3 points.
-        - Un athlète placé sur le podium mais à la mauvaise place rapporte 1 point.
+        - Un athlète bien placé sur le podium rapporte **3 points**.
+        - Un athlète placé sur le podium mais à la mauvaise place rapporte **1 point**.
         - Un coefficient multiplicateur est appliqué en fonction de l'athlète.
-            - Un athlète cité entre 100% et 75% (inclus) des podiums aura un multiplicateur neutre de (x1).
-            - Un athlète cité entre 74% et 50% (inclus) des podiums aura un multiplicateur de points (x2).
-            - Un athlète cité entre 49% et 25% (inclus) des podiums aura un multiplicateur de points (x4).
-            - Un athlète cité dans 24% (et moins) des podiums aura un multiplicateur de points(x10).
+            - Un athlète cité entre 100% et 75% (inclus) des podiums aura un multiplicateur neutre de **(x1)**.
+            - Un athlète cité entre 74% et 50% (inclus) des podiums aura un multiplicateur de points **(x2)**.
+            - Un athlète cité entre 49% et 25% (inclus) des podiums aura un multiplicateur de points **(x4)**.
+            - Un athlète cité dans 24% (et moins) des podiums aura un multiplicateur de points **(x10)**.
         """
     )
 
     with st.expander("**Exemple :**"):
         st.write(
             """
-        Avant la compétition, je pronostique Solène Gicquel à la première place de la catégorie "SAUTS FEMMES".
-        Durant la compétition, Solène Gicquel réalise le plus grand nombre de points et termine donc à la première place dans la catégorie "SAUTS FEMMES". Cela me rapporte 3 points.
-        Sur 100 participants au jeu, Solène Gicquel a été pronostiquée sur 12 podiums de la catégorie "SAUTS FEMMES" (citée dans 24% et moins des podiums). Cela applique un coefficient multiplicateur (x10) aux points récoltés ci-dessus.
+        Avant la compétition, je pronostique Solène Gicquel à la première place de la catégorie "SAUTS FEMMES".\n
+        Durant la compétition, Solène Gicquel réalise le plus grand nombre de points et termine donc à la première place dans la catégorie "SAUTS FEMMES". Cela me rapporte 3 points.\n
+        Sur 100 participants au jeu, Solène Gicquel a été pronostiquée sur 12 podiums de la catégorie "SAUTS FEMMES" (citée dans 24% et moins des podiums). Cela applique un coefficient multiplicateur (x10) aux points récoltés ci-dessus.\n  
         Mon pronostic sur Solène Gicquel me rapporte donc 30 points au total.
+        """
+        )
+
+    st.write(
+        """
         - Une question additionnelle sur le total des points de l'équipe permet de rapporter de 1 à 10 points, 1 point pour un résultat proche de +-1000 points.
         - Le joueur ayant accumulé le plus de points avec ses pronostics remporte le jeu.
         - En cas d'égalité au nombre de points, les joueurs sont départagés à celui qui aura prédit le total de points global de l'équipe le plus proche de la réalité. Si l'égalité perdure, les deux joueurs sont désignés vainqueurs ex-aequo.
         - Il est possible de changer tes pronostics jusqu'à dimanche 10h00. Tout formulaire envoyé ou réenvoyé après cet horaire sera considéré hors concours.
         - Pour revenir sur tes pronostics déjà effectués, remets le même "Prénom + Nom" renseignés à l'inscription.
         """
-        )
+    )
 
     st.write("**Bon jeu !**")
 
-    name = st.text_input("Entrez votre nom:", key="name_input_login")
+    col_1, col_2 = st.columns([4, 1])
+
+    with col_1:
+        name = st.text_input("Entrez votre nom:", key="name_input_login")
+
+    with col_2:
+        code = st.text_input(
+            "Entrez un code à 4 chiffres:", key="code_input_login", max_chars=4
+        )
 
     if st.button("JOUER", key="login_button", type="primary"):
-        if name:
+        if name and code and len(code) == 4:
             st.session_state.logged_in = True
             st.session_state.user_name = name
             st.session_state.current_page_index = 0
             st.session_state.current_page = APP_PAGES_ORDER[0]
             st.session_state.answers = {}
-            load_predictions_from_db(name)  # Load existing predictions from DB
+            load_predictions_from_db(name + code)  # Load existing predictions from DB
 
             # Clear widget-specific states to force re-initialization from loaded answers
             page_keys_for_widgets = [
@@ -206,7 +219,10 @@ def show_login_page():
 
             st.rerun()
         else:
-            st.error("Veuillez entrer votre nom.")
+            if not name:
+                st.error("Veuillez entrer votre nom.")
+            if not code:
+                st.error("Veuillez entrer un code à 4 chiffres.")
 
 
 def save_current_page_data():
@@ -489,7 +505,7 @@ def show_summary_page():
             st.write(str(data))
         st.markdown("---")
 
-    if st.button("Recommencer le Quiz", key="restart_quiz_summary"):
+    if st.button("Terminer", key="restart_quiz_summary"):
         # Reset relevant session state variables to restart the quiz
         st.session_state.logged_in = False  # Go back to login
         st.session_state.user_name = ""
@@ -497,7 +513,6 @@ def show_summary_page():
         st.session_state.answers = {}
         # Or you could hide the button: if not st.session_state.get('predictions_submitted', False): display button...
         st.rerun()
-        pass
 
 
 def save_page_data_to_db(page_name_constant: str, data: dict):
