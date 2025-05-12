@@ -171,7 +171,7 @@ def show_login_page():
 
     st.write(
         """
-        - Une question additionnelle sur le total des points de l'équipe permet de rapporter de 1 à 10 points, 1 point pour un résultat proche de +-1000 points.
+        - Une question additionnelle sur le total des points de l'équipe permet de rapporter de 1 à 10 points. (10 points pour un résultat proche de +-500 points, 9 points pour un résultat proche de +-1000 points, etc.)
         - Le joueur ayant accumulé le plus de points avec ses pronostics remporte le jeu.
         - En cas d'égalité au nombre de points, les joueurs sont départagés à celui qui aura prédit le total de points global de l'équipe le plus proche de la réalité. Si l'égalité perdure, les deux joueurs sont désignés vainqueurs ex-aequo.
         - Il est possible de changer tes pronostics jusqu'à dimanche 10h00. Tout formulaire envoyé ou réenvoyé après cet horaire sera considéré hors concours.
@@ -298,7 +298,6 @@ def save_current_page_data():
 
 
 def render_wizard_layout():
-    st.sidebar.title(f"Bonjour, {st.session_state.user_name}!")
     # Sidebar can be used for a global "Recommencer" or other non-navigation items later
 
     current_page_name = APP_PAGES_ORDER[st.session_state.current_page_index]
@@ -470,7 +469,7 @@ def show_points_page():
 
 def show_summary_page():
     st.title(PAGE_SUMMARY)
-    st.write(f"Merci pour ta participation, {st.session_state.user_name}!")
+    st.write(f"Merci pour ta participation, {st.session_state.user_name[:-4]}!")
     st.write("Voici un récapitulatif de tes réponses:")
 
     # Display answers (existing logic)
