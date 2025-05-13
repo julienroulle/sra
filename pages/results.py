@@ -9,6 +9,18 @@ LANCERS = ["javelot", "poids", "disque", "marteau"]
 SAUTS = ["hauteur", "perche", "longueur"]
 
 
+# Helper function to calculate 'Cote' (copied from stats.py)
+def calculate_cote(percentage):
+    if percentage >= 75:
+        return 1
+    elif 50 <= percentage < 75:
+        return 2
+    elif 25 <= percentage < 50:
+        return 4
+    else:  # < 25%
+        return 10
+
+
 def show_results_page():
     st.title("Results")
 
@@ -26,6 +38,18 @@ def show_results_page():
         page_nb = st.number_input("Page nb", key="page_nb", step=1, value=5)
 
     if st.button("Process results"):
+        df = pd.DataFrame()
+        for elt in pd.read_html(url.format(0), skiprows=1)[1:]:
+            df = pd.concat([df, elt], ignore_index=True)
+
+        total_points = int(
+            df[df[1].str.contains("STADE RENNAIS ATHLETISME*")][2]
+            .iloc[0][:-3]
+            .replace(" ", "")
+        )
+
+        st.metric("TOTAL DE POINTS EQUIPE 1", total_points)
+
         df = pd.concat(
             [
                 pd.read_html(url.format(i), skiprows=3 if i == 0 else 2)[0]
@@ -143,25 +167,72 @@ def show_results_page():
 
         with Session(engine) as session:
             statement = select(QuizPrediction)
-            predictions = session.exec(statement).all()
+            all_db_predictions = session.exec(statement).all()
 
-            if not predictions:
+            if not all_db_predictions:
                 st.write("Aucune prédiction trouvée.")
             else:
+                # --- Pre-calculate Cotes for each athlete in each event place ---
+                athlete_prediction_counts = {}
+                event_place_totals = {}
+                cotes_for_athlete_in_event = {}
+
+                # First loop to populate athlete_prediction_counts and event_place_totals
+                for p_db in all_db_predictions:
+                    if "Place " not in p_db.prediction_type:
+                        continue
+                    event_category = p_db.event_category
+                    athlete_name = p_db.predicted_value
+                    current_athlete_counts = athlete_prediction_counts.get(
+                        event_category, {}
+                    )
+                    current_athlete_counts[athlete_name] = (
+                        current_athlete_counts.get(athlete_name, 0) + 1
+                    )
+                    athlete_prediction_counts[event_category] = current_athlete_counts
+                    event_place_totals[event_category] = (
+                        event_place_totals.get(event_category, 0) + 1
+                    )
+
+                # Calculate cotes based on percentages
+                for (
+                    event_place_key,
+                    athlete_counts_for_event_place,
+                ) in athlete_prediction_counts.items():
+                    total_predictions_for_event_place = event_place_totals.get(
+                        event_place_key, 1
+                    )
+                    if event_place_key not in cotes_for_athlete_in_event:
+                        cotes_for_athlete_in_event[event_place_key] = {}
+
+                    for athlete_name, count in athlete_counts_for_event_place.items():
+                        percentage = (
+                            (count / total_predictions_for_event_place) * 100
+                            if total_predictions_for_event_place > 0
+                            else 0
+                        )
+                        cote = calculate_cote(percentage)
+                        cotes_for_athlete_in_event[event_place_key][athlete_name] = cote
+                # --- End Pre-calculate Cotes ---
+
                 # Group predictions by user
                 user_predictions = {}
-                for p in predictions:
+                for p in all_db_predictions:
                     user_predictions.setdefault(p.user_name, []).append(p)
 
                 for user_name, preds in user_predictions.items():
                     score = 0
                     for pred in preds:
-                        # We are interested in place predictions, e.g., "Place 1", "Place 2", "Place 3"
+                        # st.write(pred)
                         if "Place " not in pred.prediction_type:
+                            distance_from_total_points = (
+                                abs(total_points - int(pred.predicted_value)) // 500
+                            )
+                            prediction_points = max(10 - distance_from_total_points, 0)
+                            score += prediction_points
                             continue
 
-                        # pred.event_category should match a key in actual_podiums_details
-                        # e.g., "100m / M" or "Javelot (800g) / F"
+                        # CRITICAL: Use actual_podiums_details for scoring, not display podiums
                         actual_event_podium_df = podiums.get(pred.event_category)
 
                         if (
@@ -170,14 +241,14 @@ def show_results_page():
                         ):
                             predicted_place_str = pred.prediction_type.split(" ")[1]
                             if not predicted_place_str.isdigit():
-                                continue  # Malformed prediction_type
-                            predicted_place_index = (
-                                int(predicted_place_str) - 1
-                            )  # 0-indexed
-
+                                continue
+                            predicted_place_index = int(predicted_place_str) - 1
                             predicted_athlete = pred.predicted_value
 
-                            # Check for exact match (athlete and place)
+                            cote = cotes_for_athlete_in_event.get(
+                                pred.event_category, {}
+                            ).get(predicted_athlete, 1)
+
                             if predicted_place_index < len(actual_event_podium_df):
                                 actual_athlete_at_predicted_place = (
                                     actual_event_podium_df.iloc[predicted_place_index][
@@ -188,10 +259,9 @@ def show_results_page():
                                     actual_athlete_at_predicted_place.strip().lower()
                                     == predicted_athlete.strip().lower()
                                 ):
-                                    score += 3
-                                    continue  # Move to next prediction
+                                    score += 3 * cote
+                                    continue
 
-                            # Check if athlete is on podium but wrong place
                             actual_podium_athletes = (
                                 actual_event_podium_df["Athlète"]
                                 .str.strip()
@@ -202,7 +272,7 @@ def show_results_page():
                                 predicted_athlete.strip().lower()
                                 in actual_podium_athletes
                             ):
-                                score += 1
+                                score += 1 * cote
 
                     user_scores[user_name] = score
 
