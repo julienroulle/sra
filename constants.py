@@ -109,6 +109,6 @@ athletes = [
     "PIEDERRIERE Nathan",
     "DIONISI Romain",
     "KERRIC Maxime",
-    "DOBO-BI Titouan",
+    "DOBO BI Titouan",
     "BORDAGE Marius",
 ]

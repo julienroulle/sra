@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+from sqlmodel import Session, select
+from models import engine, QuizPrediction
 
 st.set_page_config(layout="wide")
 
@@ -90,40 +92,128 @@ def show_results_page():
             by="Points", ascending=False
         )  # Sort before grouping
 
+        # --- Store actual podiums ---
+        actual_podiums_details = {}  # To store detailed podiums for scoring
+
         podiums = {}
         for sexe in ["M", "F"]:
-            for discipline_type in ["COURSE", "SAUT", "LANCER"]:
+            for discipline_type in ["COURSES", "SAUTS", "LANCERS"]:
                 # Get top 3 for each original discipline within the type/sex category
-                top_3 = perfs_club[
+                top_3_overall_type = perfs_club[
                     (perfs_club["Sexe"] == sexe)
                     & (perfs_club["Discipline_Type"] == discipline_type)
                 ]
                 # Group by original discipline name to get top 3 per specific event
-                podiums[f"{discipline_type}_{sexe}"] = top_3.head(3)
+                # And store these detailed results for scoring
+                for discipline_name, group in top_3_overall_type.groupby("Discipline"):
+                    actual_podiums_details[discipline_name] = group.head(3)
+
+                # For display purposes, we might still want a summarized view or the overall top 3 for the type
+                # This part remains for displaying general podiums as before
+                sexe_str = "FEMME" if sexe == "F" else "HOMME"
+                podiums[f"{discipline_type} {sexe_str}"] = top_3_overall_type.head(3)
 
         st.subheader("Podiums Hommes")
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Courses", "")
-            st.dataframe(podiums["COURSE_M"])
+            st.dataframe(podiums["COURSES HOMME"])
         with col2:
             st.metric("Sauts", "")
-            st.dataframe(podiums["SAUT_M"])
+            st.dataframe(podiums["SAUTS HOMME"])
         with col3:
             st.metric("Lancers", "")
-            st.dataframe(podiums["LANCER_M"])
+            st.dataframe(podiums["LANCERS HOMME"])
 
         st.subheader("Podiums Femmes")
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Courses", "")
-            st.dataframe(podiums["COURSE_F"])
+            st.dataframe(podiums["COURSES FEMME"])
         with col2:
             st.metric("Sauts", "")
-            st.dataframe(podiums["SAUT_F"])
+            st.dataframe(podiums["SAUTS FEMME"])
         with col3:
             st.metric("Lancers", "")
-            st.dataframe(podiums["LANCER_F"])
+            st.dataframe(podiums["LANCERS FEMME"])
+
+        # --- Score Calculation ---
+        st.subheader("Scores des Participants")
+        user_scores = {}
+
+        with Session(engine) as session:
+            statement = select(QuizPrediction)
+            predictions = session.exec(statement).all()
+
+            if not predictions:
+                st.write("Aucune prédiction trouvée.")
+            else:
+                # Group predictions by user
+                user_predictions = {}
+                for p in predictions:
+                    user_predictions.setdefault(p.user_name, []).append(p)
+
+                for user_name, preds in user_predictions.items():
+                    score = 0
+                    for pred in preds:
+                        # We are interested in place predictions, e.g., "Place 1", "Place 2", "Place 3"
+                        if "Place " not in pred.prediction_type:
+                            continue
+
+                        # pred.event_category should match a key in actual_podiums_details
+                        # e.g., "100m / M" or "Javelot (800g) / F"
+                        actual_event_podium_df = podiums.get(pred.event_category)
+
+                        if (
+                            actual_event_podium_df is not None
+                            and not actual_event_podium_df.empty
+                        ):
+                            predicted_place_str = pred.prediction_type.split(" ")[1]
+                            if not predicted_place_str.isdigit():
+                                continue  # Malformed prediction_type
+                            predicted_place_index = (
+                                int(predicted_place_str) - 1
+                            )  # 0-indexed
+
+                            predicted_athlete = pred.predicted_value
+
+                            # Check for exact match (athlete and place)
+                            if predicted_place_index < len(actual_event_podium_df):
+                                actual_athlete_at_predicted_place = (
+                                    actual_event_podium_df.iloc[predicted_place_index][
+                                        "Athlète"
+                                    ]
+                                )
+                                if (
+                                    actual_athlete_at_predicted_place.strip().lower()
+                                    == predicted_athlete.strip().lower()
+                                ):
+                                    score += 3
+                                    continue  # Move to next prediction
+
+                            # Check if athlete is on podium but wrong place
+                            actual_podium_athletes = (
+                                actual_event_podium_df["Athlète"]
+                                .str.strip()
+                                .str.lower()
+                                .tolist()
+                            )
+                            if (
+                                predicted_athlete.strip().lower()
+                                in actual_podium_athletes
+                            ):
+                                score += 1
+
+                    user_scores[user_name] = score
+
+                if user_scores:
+                    scores_df = pd.DataFrame(
+                        list(user_scores.items()), columns=["Utilisateur", "Score"]
+                    )
+                    scores_df = scores_df.sort_values(by="Score", ascending=False)
+                    st.dataframe(scores_df, use_container_width=True)
+                else:
+                    st.write("Aucun score à afficher pour les prédictions de podium.")
 
 
 # Remplacer la colonne "Discipline" par "LANCER", "COURSE" ou "SAUT"
@@ -132,14 +222,14 @@ def categorize_discipline(discipline):
         discipline.split("/")[0].strip().upper()
     )  # Use only event name part
     if any(x in discipline_clean for x in ["JAVELOT", "DISQUE", "MARTEAU", "POIDS"]):
-        return "LANCER"
+        return "LANCERS"
     elif any(
         x in discipline_clean for x in ["HAUTEUR", "LONGUEUR", "TRIPLE", "PERCHE"]
     ):
-        return "SAUT"
+        return "SAUTS"
     else:
         # Assume everything else is a race, excluding relays handled earlier
-        return "COURSE"
+        return "COURSES"
 
 
 show_results_page()
