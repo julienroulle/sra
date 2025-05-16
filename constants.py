@@ -111,4 +111,5 @@ athletes = [
     "KERRIC Maxime",
     "DOBO BI Titouan",
     "BORDAGE Marius",
+    "FOKAM CHEGUE Joanne",
 ]
