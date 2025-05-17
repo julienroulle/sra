@@ -33,6 +33,7 @@ def show_stats_page():
         # Convert results to DataFrame for easier manipulation
         data_for_df = [
             {
+                "user_name": res.user_name,
                 "event_category": res.event_category,
                 "predicted_value": res.predicted_value,
             }
@@ -41,7 +42,7 @@ def show_stats_page():
         df = pd.DataFrame(data_for_df)
 
         # Get unique event categories
-        event_categories = df["event_category"].unique()
+        event_categories = sorted(df["event_category"].unique())
 
         for category in event_categories:
             st.subheader(f"Stats for: {category}")
@@ -91,29 +92,14 @@ def show_stats_page():
                     (bin_counts_df["Count"] / total_count_bin) * 100
                 ).round(2)
 
-                # Calculate 'Cote'
-                bin_counts_df["Cote"] = bin_counts_df["Percentage"].apply(
-                    calculate_cote
-                )
-
                 # Plot bar chart in the first column (still using Count for y-axis)
-                with col1:
-                    fig = px.bar(
-                        bin_counts_df,
-                        x="Points Range",
-                        y="Count",
-                        title=f"Distribution of Predicted Points for {category}",
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-                # Display the data table with percentages in the second column
-                with col2:
-                    st.write("Data:")
-                    # Display relevant columns for the table, excluding 'Count'
-                    st.dataframe(
-                        bin_counts_df[["Points Range", "Percentage", "Cote"]],
-                        use_container_width=True,
-                    )
+                fig = px.bar(
+                    bin_counts_df,
+                    x="Points Range",
+                    y="Count",
+                    title=f"Distribution of Predicted Points for {category}",
+                )
+                st.plotly_chart(fig, use_container_width=True)
 
             else:
                 # Calculate occurrences of each predicted value
@@ -122,9 +108,11 @@ def show_stats_page():
                 value_counts_df.columns = ["Predicted Value", "Count"]
 
                 # Calculate percentages
-                total_count_cat = value_counts_df["Count"].sum()
+                # total_count_cat = value_counts_df["Count"].sum()
+                total_count_cat = category_df["user_name"].nunique()
+
                 value_counts_df["Percentage"] = (
-                    (value_counts_df["Count"] / total_count_cat) * 100
+                    (value_counts_df["Count"] / total_count_cat) * 100  # type: ignore
                 ).round(2)
 
                 # Calculate 'Cote'
@@ -151,7 +139,9 @@ def show_stats_page():
                         st.write("Data:")
                         # Display relevant columns for the table, excluding 'Count'
                         st.dataframe(
-                            value_counts_df[["Predicted Value", "Percentage", "Cote"]],
+                            value_counts_df[
+                                ["Predicted Value", "Count", "Percentage", "Cote"]
+                            ],
                             use_container_width=True,
                         )
                 else:

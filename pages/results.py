@@ -183,6 +183,7 @@ def show_results_page():
                         continue
                     event_category = p_db.event_category
                     athlete_name = p_db.predicted_value
+                    user_name = p_db.user_name
                     current_athlete_counts = athlete_prediction_counts.get(
                         event_category, {}
                     )
@@ -190,9 +191,10 @@ def show_results_page():
                         current_athlete_counts.get(athlete_name, 0) + 1
                     )
                     athlete_prediction_counts[event_category] = current_athlete_counts
-                    event_place_totals[event_category] = (
-                        event_place_totals.get(event_category, 0) + 1
-                    )
+                    if event_category not in event_place_totals:
+                        event_place_totals[event_category] = [user_name]
+                    else:
+                        event_place_totals[event_category].append(user_name)
 
                 # Calculate cotes based on percentages
                 for (
@@ -201,6 +203,9 @@ def show_results_page():
                 ) in athlete_prediction_counts.items():
                     total_predictions_for_event_place = event_place_totals.get(
                         event_place_key, 1
+                    )
+                    total_predictions_for_event_place = len(
+                        set(event_place_totals.get(event_place_key, []))
                     )
                     if event_place_key not in cotes_for_athlete_in_event:
                         cotes_for_athlete_in_event[event_place_key] = {}
