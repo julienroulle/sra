@@ -31,8 +31,21 @@ def show_db_view():
                 }
                 for res in results
             ]
+            st.subheader("Database content")
             df = pd.DataFrame(data_for_df)
             st.dataframe(df)
+
+            st.subheader("Participants")
+            participants = df["User Name"].unique()
+            participants_df = pd.DataFrame(participants, columns=["User Name"])
+            participants_df["Missing Predictions"] = participants_df.apply(
+                lambda x: 19 - len(df[df["User Name"] == x["User Name"]]),
+                axis=1,
+            )
+            st.dataframe(
+                participants_df.sort_values(by="Missing Predictions", ascending=False)
+            )
+
         else:
             st.write("No predictions found in the database.")
 
