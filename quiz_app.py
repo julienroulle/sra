@@ -195,6 +195,8 @@ def show_login_page():
 
     if st.button("JOUER", key="login_button", type="primary"):
         if name and code and len(code) == 4:
+            name = name.strip().replace(" ", "")
+            name = name.upper()
             st.session_state.logged_in = True
             st.session_state.user_name = name + code
             st.session_state.current_page_index = 0
